@@ -235,15 +235,11 @@ body.locked { overflow: hidden; }
   overflow-x: auto;
 }
 
+/* ไม่มีกรอบ/พื้นหลังครอบแผนก — ให้เห็นท้องฟ้าเต็มๆ เหลือแค่กรอบการ์ดพนักงาน */
 .dept {
-  margin: 0 auto 46px;
+  margin: 0 auto 54px;
   max-width: 1500px;
-  padding: 24px clamp(14px, 2.5vw, 30px) 30px;
-  border-radius: var(--r-lg);
-  background: rgba(10, 12, 30, 0.34);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  padding: 4px clamp(6px, 1.5vw, 16px) 8px;
   animation: rise 0.7s var(--ease) backwards;
 }
 
@@ -679,12 +675,11 @@ input:focus, select:focus, textarea:focus {
 input::placeholder, textarea::placeholder { color: var(--muted-dim); }
 select option { background: #14162e; color: var(--ink); }
 
-/* ปฏิทิน/นาฬิกาของเบราว์เซอร์ให้เป็นสีอ่อน */
-input[type=date]::-webkit-calendar-picker-indicator,
-input[type=time]::-webkit-calendar-picker-indicator {
-  filter: invert(0.75);
-  cursor: pointer;
-}
+/* ช่องเลือกวันเดือนปี / เวลา แบบไทย */
+.picker-row { display: grid; gap: 8px; }
+.picker-date { grid-template-columns: 0.9fr 1.5fr 1.1fr; }
+.picker-time { grid-template-columns: 1fr 1fr; }
+.picker-row select { min-width: 0; }
 
 /* ---------- หน้า Login ---------- */
 

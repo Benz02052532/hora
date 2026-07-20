@@ -43,6 +43,99 @@ const thaiTime = t => t ? `${t.slice(0, 5).replace(':', '.')} น.` : '';
 
 const initial = name => (name || '?').trim().charAt(0) || '?';
 
+/* ---------- ช่องเลือกวันเดือนปีแบบไทย ---------- */
+/* ไม่ใช้ <input type=date> เพราะปฏิทินของเบราว์เซอร์บังคับภาษาตามเครื่อง
+   และเลือกปีเกิดย้อนหลังหลายสิบปีได้ลำบากมาก */
+
+const THIS_YEAR_BE = new Date().getFullYear() + 543;
+
+/** เลือกตรงกันแบบไม่ให้ 0 == '' กลายเป็นจริง */
+const optTag = (v, label, sel) =>
+  `<option value="${v}"${String(v) === String(sel) ? ' selected' : ''}>${label}</option>`;
+
+/** "1990-05-20" → 3 dropdown (วัน / เดือน / ปี พ.ศ.) */
+function dateSelects(iso) {
+  let dd = '', mm = '', yy = '';
+  if (iso) {
+    const [Y, M, D] = String(iso).split('-').map(Number);
+    if (Y) { yy = Y + 543; mm = M; dd = D; }
+  }
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+  const years = Array.from({ length: 101 }, (_, i) => THIS_YEAR_BE - i);
+
+  return `
+    <div class="picker-row picker-date">
+      <select id="f-bday" aria-label="วันที่">
+        <option value="">วัน</option>
+        ${days.map(d => optTag(d, d, dd)).join('')}
+      </select>
+      <select id="f-bmonth" aria-label="เดือน">
+        <option value="">เดือน</option>
+        ${TH_MONTHS.map((n, i) => optTag(i + 1, n, mm)).join('')}
+      </select>
+      <select id="f-byear" aria-label="ปี พ.ศ.">
+        <option value="">ปี พ.ศ.</option>
+        ${years.map(y => optTag(y, y, yy)).join('')}
+      </select>
+    </div>`;
+}
+
+/** "09:15" → 2 dropdown (ชั่วโมง / นาที) แบบ 24 ชั่วโมง */
+function timeSelects(t) {
+  let hh = '', mi = '';
+  if (t) {
+    const [H, M] = String(t).split(':');
+    if (H !== undefined && H !== '') { hh = H.padStart(2, '0'); mi = (M || '00').padStart(2, '0'); }
+  }
+  const pad = n => String(n).padStart(2, '0');
+  const hours = Array.from({ length: 24 }, (_, i) => pad(i));
+  const mins  = Array.from({ length: 60 }, (_, i) => pad(i));
+
+  return `
+    <div class="picker-row picker-time">
+      <select id="f-bhour" aria-label="ชั่วโมง">
+        <option value="">ชั่วโมง</option>
+        ${hours.map(h => optTag(h, `${h} น.`, hh)).join('')}
+      </select>
+      <select id="f-bmin" aria-label="นาที">
+        <option value="">นาที</option>
+        ${mins.map(m => optTag(m, `${m} นาที`, mi)).join('')}
+      </select>
+    </div>`;
+}
+
+/** ซ่อนวันที่ไม่มีจริงในเดือนนั้น เช่น 31 กุมภาพันธ์ */
+function syncDayOptions(ov) {
+  const dSel = ov.querySelector('#f-bday');
+  const m = +ov.querySelector('#f-bmonth').value;
+  const yBE = +ov.querySelector('#f-byear').value;
+  if (!m) return;
+  const max = new Date(yBE ? yBE - 543 : 2000, m, 0).getDate();
+  for (const o of dSel.options) {
+    if (o.value) o.hidden = +o.value > max;
+  }
+  if (+dSel.value > max) dSel.value = '';
+}
+
+/** รวม 3 ช่องกลับเป็น "1990-05-20" — คืน undefined ถ้ากรอกไม่ครบ */
+function readDate(ov) {
+  const d = ov.querySelector('#f-bday').value;
+  const m = ov.querySelector('#f-bmonth').value;
+  const y = ov.querySelector('#f-byear').value;
+  if (!d && !m && !y) return null;
+  if (!d || !m || !y) return undefined;
+  return `${y - 543}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+/** รวม 2 ช่องกลับเป็น "09:15" — คืน undefined ถ้ากรอกไม่ครบ */
+function readTime(ov) {
+  const h = ov.querySelector('#f-bhour').value;
+  const m = ov.querySelector('#f-bmin').value;
+  if (!h && !m) return null;
+  if (!h || !m) return undefined;
+  return `${h}:${m}`;
+}
+
 function toast(msg, kind = '') {
   const t = document.createElement('div');
   t.className = 'toast ' + kind;
@@ -479,15 +572,13 @@ function personForm(emp = null, preset = {}) {
 
         <div class="section-title">ข้อมูลโหราศาสตร์</div>
         <div class="form-grid">
-          <div class="form-2">
-            <div>
-              <label class="lbl" for="f-bdate">วัน/เดือน/ปีเกิด</label>
-              <input type="date" id="f-bdate" value="${esc(e.birthDate)}">
-            </div>
-            <div>
-              <label class="lbl" for="f-btime">เวลาเกิด</label>
-              <input type="time" id="f-btime" value="${esc(e.birthTime)}">
-            </div>
+          <div>
+            <label class="lbl">วัน/เดือน/ปีเกิด</label>
+            ${dateSelects(e.birthDate)}
+          </div>
+          <div>
+            <label class="lbl">เวลาเกิด</label>
+            ${timeSelects(e.birthTime)}
           </div>
           <div>
             <label class="lbl" for="f-prov">จังหวัดที่เกิด</label>
@@ -504,10 +595,21 @@ function personForm(emp = null, preset = {}) {
     </form>
   `, (ov, close) => {
     ov.querySelector('#btnCancel').addEventListener('click', close);
+
+    // เดือน/ปีเปลี่ยน → ปรับจำนวนวันให้ตรงกับเดือนนั้น
+    ov.querySelector('#f-bmonth').addEventListener('change', () => syncDayOptions(ov));
+    ov.querySelector('#f-byear').addEventListener('change', () => syncDayOptions(ov));
+    syncDayOptions(ov);
+
     ov.querySelector('#pf').addEventListener('submit', async ev => {
       ev.preventDefault();
       const nick = ov.querySelector('#f-nick').value.trim();
       if (!nick) return toast('กรุณากรอกชื่อเล่น', 'err');
+
+      const birthDate = readDate(ov);
+      if (birthDate === undefined) return toast('กรุณาเลือกวัน เดือน และปีเกิดให้ครบ', 'err');
+      const birthTime = readTime(ov);
+      if (birthTime === undefined) return toast('กรุณาเลือกทั้งชั่วโมงและนาที', 'err');
 
       const data = {
         ...e,
@@ -515,8 +617,8 @@ function personForm(emp = null, preset = {}) {
         position: ov.querySelector('#f-pos').value.trim(),
         departmentId: ov.querySelector('#f-dept').value || null,
         managerId: ov.querySelector('#f-mgr').value || null,
-        birthDate: ov.querySelector('#f-bdate').value || null,
-        birthTime: ov.querySelector('#f-btime').value || null,
+        birthDate,
+        birthTime,
         birthProvince: ov.querySelector('#f-prov').value || null
       };
 
