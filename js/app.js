@@ -698,6 +698,7 @@ function initGate() {
 /* ---------- ออกตัว ---------- */
 
 window.addEventListener('DOMContentLoaded', () => {
+  document.title = `${CFG.companyName} · ผังองค์กร`;
   Wheel.init();
   Sky.init($('sky'), CFG, renderPlanets);
   initGate();
