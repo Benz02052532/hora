@@ -10,6 +10,7 @@ const Store = (() => {
   let sb = null;              // Supabase client
   let mode = 'local';         // 'local' | 'cloud'
   let hasCompanies = true;    // ตาราง companies พร้อมใช้ไหม (ยังไม่ได้รัน migration = false)
+  let hasPrediction = true;   // คอลัมน์ prediction พร้อมใช้ไหม
   let cache = { companies: [], departments: [], employees: [] };
 
   /* ---------- เริ่มต้น ---------- */
@@ -45,6 +46,14 @@ const Store = (() => {
       ]);
       if (d.error) throw d.error;
       if (e.error) throw e.error;
+
+      // ตรวจว่ามีคอลัมน์ prediction ไหม
+      if (e.data.length) {
+        hasPrediction = 'prediction' in e.data[0];
+      } else {
+        const probe = await sb.from('employees').select('prediction').limit(1);
+        hasPrediction = !probe.error;
+      }
 
       // ยังไม่ได้รัน migration-companies.sql → ทำงานต่อได้ แค่ไม่มีชั้นบริษัท
       hasCompanies = !c.error;
@@ -102,6 +111,7 @@ const Store = (() => {
     birthTime: r.birth_time ? String(r.birth_time).slice(0, 5) : null,
     birthProvince: r.birth_province,
     chartUrl: r.chart_url,
+    prediction: r.prediction ?? '',
     sortOrder: r.sort_order ?? 0
   });
   const toRowEmp = e => {
@@ -118,6 +128,7 @@ const Store = (() => {
       sort_order: e.sortOrder ?? 0
     };
     if (companiesReady()) row.company_id = e.companyId || null;
+    if (hasPrediction) row.prediction = e.prediction || null;
     return row;
   };
 

@@ -499,67 +499,97 @@ function detailView(id) {
       <div class="sheet-role">${esc(emp.position || '—')}${dept ? ' · ' + esc(dept.name) : ''}</div>
     </div>
 
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="info" role="tab">ข้อมูล</button>
+      <button class="tab" data-tab="chart" role="tab">รูปดวง</button>
+      <button class="tab" data-tab="predict" role="tab">คำทำนาย</button>
+    </div>
+
     <div class="sheet-body">
-      <div class="section-title">ข้อมูลทั่วไป</div>
-      ${row('ชื่อเล่น', emp.nickname)}
-      ${row('ตำแหน่ง', emp.position)}
-      ${row('บริษัท', comp?.name)}
-      ${row('แผนก', dept?.name)}
-      ${row('หัวหน้า', mgr?.nickname)}
+      <!-- แท็บข้อมูล -->
+      <div class="tab-panel is-active" data-panel="info">
+        <div class="section-title">ข้อมูลทั่วไป</div>
+        ${row('ชื่อเล่น', emp.nickname)}
+        ${row('ตำแหน่ง', emp.position)}
+        ${row('บริษัท', comp?.name)}
+        ${row('แผนก', dept?.name)}
+        ${row('หัวหน้า', mgr?.nickname)}
 
-      <div class="section-title">ข้อมูลโหราศาสตร์</div>
-      ${row('วัน/เดือน/ปีเกิด', thaiDate(emp.birthDate))}
-      ${row('เวลาเกิด', thaiTime(emp.birthTime))}
-      ${row('จังหวัดที่เกิด', emp.birthProvince)}
-      ${computed}
+        <div class="section-title">ข้อมูลโหราศาสตร์</div>
+        ${row('วัน/เดือน/ปีเกิด', thaiDate(emp.birthDate))}
+        ${row('เวลาเกิด', thaiTime(emp.birthTime))}
+        ${row('จังหวัดที่เกิด', emp.birthProvince)}
+        ${computed}
+      </div>
 
-      <div class="section-title">รูปดวง</div>
-      ${emp.chartUrl
-        ? `<img class="chart-img" src="${esc(emp.chartUrl)}" alt="รูปดวงของ ${esc(emp.nickname)}" id="chartImg">`
-        : `<div class="chart-drop" id="chartDrop">
-             ยังไม่มีรูปดวง<br><small>กดที่นี่เพื่ออัปโหลด หรือลากไฟล์รูปมาวาง</small>
-           </div>`}
-      <input type="file" id="chartFile" accept="image/*" hidden>
+      <!-- แท็บรูปดวง (ดูอย่างเดียว) -->
+      <div class="tab-panel" data-panel="chart">
+        ${emp.chartUrl
+          ? `<div class="chart-view">
+               <img class="chart-thumb" src="${esc(emp.chartUrl)}" alt="รูปดวงของ ${esc(emp.nickname)}" id="chartThumb">
+               <button class="btn btn-gold" id="btnViewChart">🔍 ดูรูปเต็มจอ</button>
+             </div>`
+          : `<div class="chart-empty">
+               <div class="chart-empty-icon">✦</div>
+               <p>ยังไม่มีรูปดวง</p>
+               <small>เพิ่มรูปได้ที่ปุ่ม “แก้ไขข้อมูล”</small>
+             </div>`}
+      </div>
+
+      <!-- แท็บคำทำนาย (แก้ไข + บันทึกได้) -->
+      <div class="tab-panel" data-panel="predict">
+        <label class="lbl" for="f-predict">บันทึกคำทำนาย / คำแนะนำ</label>
+        <textarea id="f-predict" rows="9" placeholder="พิมพ์คำทำนาย ดวงชะตา หรือคำแนะนำสำหรับพนักงานคนนี้…">${esc(emp.prediction || '')}</textarea>
+        <div class="predict-foot">
+          <span class="predict-hint" id="predictHint"></span>
+          <button class="btn btn-gold btn-sm" id="btnSavePredict">บันทึกคำทำนาย</button>
+        </div>
+      </div>
     </div>
 
     <div class="sheet-foot">
       <button class="btn btn-danger btn-sm" id="btnDel">ลบพนักงาน</button>
       <div class="spacer"></div>
-      ${emp.chartUrl ? '<button class="btn btn-sm" id="btnReplace">เปลี่ยนรูปดวง</button>' : ''}
       <button class="btn btn-gold" id="btnEdit">แก้ไขข้อมูล</button>
     </div>
   `, (ov, close) => {
 
-    const file = ov.querySelector('#chartFile');
-    const pick = () => file.click();
+    // ---- สลับแท็บ ----
+    ov.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        ov.querySelectorAll('.tab').forEach(t => t.classList.remove('is-active'));
+        ov.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
+        tab.classList.add('is-active');
+        ov.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('is-active');
+      });
+    });
 
-    ov.querySelector('#chartDrop')?.addEventListener('click', pick);
-    ov.querySelector('#btnReplace')?.addEventListener('click', pick);
-
-    ov.querySelector('#chartImg')?.addEventListener('click', () => {
+    // ---- ดูรูปเต็มจอ ----
+    const openLightbox = () => {
       const lb = document.createElement('div');
       lb.className = 'lightbox';
       lb.innerHTML = `<img src="${esc(emp.chartUrl)}" alt="รูปดวง">`;
       lb.addEventListener('click', () => lb.remove());
       document.body.append(lb);
-    });
+    };
+    ov.querySelector('#btnViewChart')?.addEventListener('click', openLightbox);
+    ov.querySelector('#chartThumb')?.addEventListener('click', openLightbox);
 
-    // ลากไฟล์มาวาง
-    const drop = ov.querySelector('#chartDrop');
-    if (drop) {
-      ['dragenter','dragover'].forEach(ev =>
-        drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
-      ['dragleave','drop'].forEach(ev =>
-        drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-      drop.addEventListener('drop', e => {
-        const f = e.dataTransfer.files[0];
-        if (f) uploadChart(emp, f, close);
-      });
-    }
-
-    file.addEventListener('change', () => {
-      const f = file.files[0];
-      if (f) uploadChart(emp, f, close);
+    // ---- บันทึกคำทำนาย ----
+    ov.querySelector('#btnSavePredict')?.addEventListener('click', async () => {
+      const val = ov.querySelector('#f-predict').value.trim();
+      const hint = ov.querySelector('#predictHint');
+      try {
+        emp.prediction = val;
+        await Store.saveEmployee(emp);
+        hint.textContent = 'บันทึกแล้ว ✓';
+        hint.className = 'predict-hint ok';
+        render();
+        toast('บันทึกคำทำนายแล้ว', 'ok');
+      } catch (err) {
+        hint.textContent = '';
+        toast(err.message || 'บันทึกไม่สำเร็จ', 'err');
+      }
     });
 
     ov.querySelector('#btnEdit').addEventListener('click', () => { close(); personForm(emp); });
@@ -571,19 +601,6 @@ function detailView(id) {
       toast('ลบพนักงานแล้ว', 'ok');
     });
   });
-}
-
-async function uploadChart(emp, file, close) {
-  try {
-    toast('กำลังอัปโหลดรูป…');
-    const url = await Store.uploadChart(file, emp.id);
-    emp.chartUrl = url;
-    await Store.saveEmployee(emp);
-    close(); render(); detailView(emp.id);
-    toast('อัปโหลดรูปดวงแล้ว', 'ok');
-  } catch (e) {
-    toast(e.message || 'อัปโหลดไม่สำเร็จ', 'err');
-  }
 }
 
 /* ---------- ฟอร์มพนักงาน ---------- */
@@ -683,6 +700,19 @@ function personForm(emp = null, preset = {}) {
             <select id="f-prov">${provOpts}</select>
           </div>
         </div>
+
+        <div class="section-title">รูปดวง</div>
+        <div class="chart-edit" id="chartEdit">
+          ${e.chartUrl
+            ? `<img class="chart-thumb" src="${esc(e.chartUrl)}" alt="รูปดวง" id="chartPreview">`
+            : ''}
+          <div class="chart-drop" id="chartDrop">
+            ${e.chartUrl ? 'เปลี่ยนรูปดวง' : 'ยังไม่มีรูปดวง'}<br>
+            <small>กดที่นี่เพื่อเลือกไฟล์ หรือลากรูปมาวาง</small>
+          </div>
+          ${e.chartUrl ? '<button type="button" class="btn btn-sm btn-danger" id="btnRemoveChart">ลบรูปดวง</button>' : ''}
+          <input type="file" id="chartFile" accept="image/*" hidden>
+        </div>
       </div>
 
       <div class="sheet-foot">
@@ -693,6 +723,45 @@ function personForm(emp = null, preset = {}) {
     </form>
   `, (ov, close) => {
     ov.querySelector('#btnCancel').addEventListener('click', close);
+
+    // ---- อัปโหลดรูปดวง (เก็บไว้ในตัวแปรจนกว่าจะกดบันทึก) ----
+    let pendingChart = e.chartUrl || null;   // URL/dataURL ปัจจุบัน
+    let pendingFile = null;                   // ไฟล์ที่รออัปโหลด (ยังไม่ upload จนกดบันทึก)
+    const fileInput = ov.querySelector('#chartFile');
+    const drop = ov.querySelector('#chartDrop');
+
+    const showPreview = src => {
+      let img = ov.querySelector('#chartPreview');
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'chart-thumb';
+        img.id = 'chartPreview';
+        ov.querySelector('#chartEdit').prepend(img);
+      }
+      img.src = src;
+      drop.innerHTML = 'เปลี่ยนรูปดวง<br><small>กดที่นี่เพื่อเลือกไฟล์ หรือลากรูปมาวาง</small>';
+    };
+
+    const takeFile = f => {
+      if (!f || !f.type.startsWith('image/')) return toast('กรุณาเลือกไฟล์รูปภาพ', 'err');
+      pendingFile = f;
+      showPreview(URL.createObjectURL(f));
+    };
+
+    drop.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => takeFile(fileInput.files[0]));
+    ['dragenter','dragover'].forEach(ev =>
+      drop.addEventListener(ev, e2 => { e2.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave','drop'].forEach(ev =>
+      drop.addEventListener(ev, e2 => { e2.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', e2 => takeFile(e2.dataTransfer.files[0]));
+
+    ov.querySelector('#btnRemoveChart')?.addEventListener('click', () => {
+      pendingChart = null; pendingFile = null;
+      ov.querySelector('#chartPreview')?.remove();
+      ov.querySelector('#btnRemoveChart').remove();
+      drop.innerHTML = 'ยังไม่มีรูปดวง<br><small>กดที่นี่เพื่อเลือกไฟล์ หรือลากรูปมาวาง</small>';
+    });
 
     // เดือน/ปีเปลี่ยน → ปรับจำนวนวันให้ตรงกับเดือนนั้น
     ov.querySelector('#f-bmonth').addEventListener('change', () => syncDayOptions(ov));
@@ -719,23 +788,37 @@ function personForm(emp = null, preset = {}) {
       // ถ้าเลือกแผนก ให้บริษัทยึดตามแผนกเสมอ กันข้อมูลขัดกันเอง
       const ofDept = deptId ? departments.find(d => d.id === deptId) : null;
 
-      const data = {
-        ...e,
-        nickname: nick,
-        position: ov.querySelector('#f-pos').value.trim(),
-        companyId: ofDept ? (ofDept.companyId || null) : pickedCo,
-        departmentId: deptId,
-        managerId: ov.querySelector('#f-mgr').value || null,
-        birthDate,
-        birthTime,
-        birthProvince: ov.querySelector('#f-prov').value || null
-      };
+      const saveBtn = ov.querySelector('#pf button[type=submit]');
+      saveBtn.disabled = true;
 
       try {
+        // อัปโหลดรูปที่รออยู่ก่อน (ถ้ามี) — ต้องมี id ก่อน
+        let chartUrl = pendingChart;
+        if (pendingFile) {
+          saveBtn.textContent = 'กำลังอัปโหลดรูป…';
+          if (!e.id) e.id = (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now());
+          chartUrl = await Store.uploadChart(pendingFile, e.id);
+        }
+
+        const data = {
+          ...e,
+          nickname: nick,
+          position: ov.querySelector('#f-pos').value.trim(),
+          companyId: ofDept ? (ofDept.companyId || null) : pickedCo,
+          departmentId: deptId,
+          managerId: ov.querySelector('#f-mgr').value || null,
+          birthDate,
+          birthTime,
+          birthProvince: ov.querySelector('#f-prov').value || null,
+          chartUrl
+        };
+
         await Store.saveEmployee(data);
         close(); render();
         toast(isNew ? 'เพิ่มพนักงานแล้ว' : 'บันทึกแล้ว', 'ok');
       } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = isNew ? 'เพิ่มพนักงาน' : 'บันทึก';
         toast(err.message || 'บันทึกไม่สำเร็จ', 'err');
       }
     });
