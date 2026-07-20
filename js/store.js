@@ -9,7 +9,8 @@ const Store = (() => {
   const LS_KEY = 'hora.data.v1';
   let sb = null;              // Supabase client
   let mode = 'local';         // 'local' | 'cloud'
-  let cache = { departments: [], employees: [] };
+  let hasCompanies = true;    // ตาราง companies พร้อมใช้ไหม (ยังไม่ได้รัน migration = false)
+  let cache = { companies: [], departments: [], employees: [] };
 
   /* ---------- เริ่มต้น ---------- */
 
@@ -37,38 +38,63 @@ const Store = (() => {
 
   async function load() {
     if (mode === 'cloud') {
-      const [d, e] = await Promise.all([
+      const [c, d, e] = await Promise.all([
+        sb.from('companies').select('*').order('sort_order'),
         sb.from('departments').select('*').order('sort_order'),
         sb.from('employees').select('*').order('sort_order')
       ]);
       if (d.error) throw d.error;
       if (e.error) throw e.error;
+
+      // ยังไม่ได้รัน migration-companies.sql → ทำงานต่อได้ แค่ไม่มีชั้นบริษัท
+      hasCompanies = !c.error;
+      if (c.error) {
+        console.warn('[HORA] ยังไม่มีตาราง companies — รัน docs/migration-companies.sql ก่อน');
+        cache.companies = [];
+      } else {
+        cache.companies = c.data.map(fromRowCompany);
+      }
+
       cache.departments = d.data.map(fromRowDept);
       cache.employees   = e.data.map(fromRowEmp);
     } else {
       const raw = localStorage.getItem(LS_KEY);
-      cache = raw ? JSON.parse(raw) : { departments: [], employees: [] };
-      if (!cache.departments) cache.departments = [];
-      if (!cache.employees) cache.employees = [];
+      cache = raw ? JSON.parse(raw) : {};
+      cache.companies   = cache.companies   || [];
+      cache.departments = cache.departments || [];
+      cache.employees   = cache.employees   || [];
     }
     return cache;
   }
+
+  /** ตาราง companies พร้อมใช้ไหม */
+  function companiesReady() { return mode === 'local' || hasCompanies; }
 
   function all() { return cache; }
 
   /* ---------- แปลงรูปแบบ DB ↔ แอป ---------- */
 
-  const fromRowDept = r => ({
+  const fromRowCompany = r => ({
     id: r.id, name: r.name, sortOrder: r.sort_order ?? 0
   });
-  const toRowDept = d => ({
-    id: d.id, name: d.name, sort_order: d.sortOrder ?? 0
+  const toRowCompany = c => ({
+    id: c.id, name: c.name, sort_order: c.sortOrder ?? 0
   });
+
+  const fromRowDept = r => ({
+    id: r.id, name: r.name, companyId: r.company_id ?? null, sortOrder: r.sort_order ?? 0
+  });
+  const toRowDept = d => {
+    const row = { id: d.id, name: d.name, sort_order: d.sortOrder ?? 0 };
+    if (companiesReady()) row.company_id = d.companyId || null;
+    return row;
+  };
 
   const fromRowEmp = r => ({
     id: r.id,
     nickname: r.nickname,
     position: r.position,
+    companyId: r.company_id ?? null,
     departmentId: r.department_id,
     managerId: r.manager_id,
     birthDate: r.birth_date,
@@ -78,18 +104,22 @@ const Store = (() => {
     chartUrl: r.chart_url,
     sortOrder: r.sort_order ?? 0
   });
-  const toRowEmp = e => ({
-    id: e.id,
-    nickname: e.nickname,
-    position: e.position,
-    department_id: e.departmentId,
-    manager_id: e.managerId,
-    birth_date: e.birthDate || null,
-    birth_time: e.birthTime || null,
-    birth_province: e.birthProvince || null,
-    chart_url: e.chartUrl || null,
-    sort_order: e.sortOrder ?? 0
-  });
+  const toRowEmp = e => {
+    const row = {
+      id: e.id,
+      nickname: e.nickname,
+      position: e.position,
+      department_id: e.departmentId,
+      manager_id: e.managerId,
+      birth_date: e.birthDate || null,
+      birth_time: e.birthTime || null,
+      birth_province: e.birthProvince || null,
+      chart_url: e.chartUrl || null,
+      sort_order: e.sortOrder ?? 0
+    };
+    if (companiesReady()) row.company_id = e.companyId || null;
+    return row;
+  };
 
   /* ---------- บันทึกลงเครื่อง ---------- */
 
@@ -104,6 +134,41 @@ const Store = (() => {
   const uid = () =>
     (crypto.randomUUID ? crypto.randomUUID()
      : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9));
+
+  /* ---------- บริษัท ---------- */
+
+  async function saveCompany(company) {
+    if (!companiesReady()) {
+      throw new Error('ยังไม่ได้สร้างตารางบริษัท — รัน docs/migration-companies.sql ใน Supabase ก่อน');
+    }
+    if (!company.id) {
+      company.id = uid();
+      company.sortOrder = cache.companies.length;
+    }
+    const i = cache.companies.findIndex(c => c.id === company.id);
+    if (i >= 0) cache.companies[i] = { ...cache.companies[i], ...company };
+    else cache.companies.push(company);
+
+    if (mode === 'cloud') {
+      const { error } = await sb.from('companies').upsert(toRowCompany(company));
+      if (error) throw error;
+    } else persistLocal();
+    return company;
+  }
+
+  async function deleteCompany(id) {
+    // แผนกและพนักงานในบริษัทนี้ไม่ถูกลบ แค่ย้ายออกไปกลุ่ม "ยังไม่ระบุบริษัท"
+    cache.departments.forEach(d => { if (d.companyId === id) d.companyId = null; });
+    cache.employees.forEach(e => { if (e.companyId === id) e.companyId = null; });
+    cache.companies = cache.companies.filter(c => c.id !== id);
+
+    if (mode === 'cloud') {
+      await sb.from('departments').update({ company_id: null }).eq('company_id', id);
+      await sb.from('employees').update({ company_id: null }).eq('company_id', id);
+      const { error } = await sb.from('companies').delete().eq('id', id);
+      if (error) throw error;
+    } else persistLocal();
+  }
 
   /* ---------- แผนก ---------- */
 
@@ -229,14 +294,19 @@ const Store = (() => {
       throw new Error('ไฟล์ไม่ถูกต้อง — ต้องมี departments และ employees');
     }
     cache = data;
+    cache.companies = cache.companies || [];
     if (mode === 'cloud') {
+      if (companiesReady()) {
+        for (const c of cache.companies) await sb.from('companies').upsert(toRowCompany(c));
+      }
       for (const d of cache.departments) await sb.from('departments').upsert(toRowDept(d));
       for (const e of cache.employees)   await sb.from('employees').upsert(toRowEmp(e));
     } else persistLocal();
   }
 
   return {
-    init, load, all, getMode,
+    init, load, all, getMode, companiesReady,
+    saveCompany, deleteCompany,
     saveDepartment, deleteDepartment,
     saveEmployee, deleteEmployee,
     uploadChart, exportJSON, importJSON

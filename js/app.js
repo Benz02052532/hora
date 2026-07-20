@@ -196,27 +196,49 @@ function renderPlanets(planets, now) {
 
 /* ---------- สร้างต้นไม้ ---------- */
 
-/** จัดกลุ่มพนักงานเป็นแผนก แล้วสร้างโครงต้นไม้จาก managerId */
-function buildGroups() {
-  const { departments, employees } = Store.all();
-  const byDept = new Map();
-  byDept.set(null, []);
-  departments.forEach(d => byDept.set(d.id, []));
+const bySort = (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+
+/**
+ * จัดข้อมูลเป็นชั้น: บริษัท → แผนก → พนักงาน
+ * พนักงานที่มีแผนก จะอยู่ตามบริษัทของแผนกนั้น
+ * พนักงานที่ไม่มีแผนก (เช่น CEO) จะอยู่กลุ่ม "ผู้บริหาร" ของบริษัทตัวเอง
+ */
+function buildStructure() {
+  const { companies, departments, employees } = Store.all();
+  const deptById = new Map(departments.map(d => [d.id, d]));
+
+  // แยกพนักงานลงถัง key = "companyId|departmentId"
+  const bucket = new Map();
+  const put = (cid, did, emp) => {
+    const k = `${cid || ''}|${did || ''}`;
+    if (!bucket.has(k)) bucket.set(k, []);
+    bucket.get(k).push(emp);
+  };
   employees.forEach(e => {
-    const key = byDept.has(e.departmentId) ? e.departmentId : null;
-    byDept.get(key).push(e);
+    const d = e.departmentId ? deptById.get(e.departmentId) : null;
+    if (d) put(d.companyId, d.id, e);
+    else put(e.companyId, null, e);
   });
 
-  const groups = [];
-  const noDept = byDept.get(null);
-  if (noDept.length) {
-    groups.push({ id:null, name:'ผู้บริหาร / ยังไม่ระบุแผนก', members:noDept });
-  }
-  departments
-    .slice()
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-    .forEach(d => groups.push({ ...d, members: byDept.get(d.id) || [] }));
-  return groups;
+  const makeBlock = comp => {
+    const cid = comp ? comp.id : null;
+    const groups = [];
+
+    const execs = bucket.get(`${cid || ''}|`) || [];
+    if (execs.length) groups.push({ id: null, name: 'ผู้บริหาร', members: execs });
+
+    departments
+      .filter(d => (d.companyId || null) === cid)
+      .sort(bySort)
+      .forEach(d => groups.push({ ...d, members: bucket.get(`${cid || ''}|${d.id}`) || [] }));
+
+    return { id: cid, name: comp ? comp.name : 'ยังไม่ระบุบริษัท', groups };
+  };
+
+  const blocks = companies.slice().sort(bySort).map(makeBlock);
+  const orphan = makeBlock(null);
+  if (orphan.groups.length) blocks.push(orphan);
+  return blocks;
 }
 
 /** แปลงรายชื่อในกลุ่มเป็นต้นไม้ */
@@ -263,28 +285,31 @@ function nodeHTML(n, depth) {
 
 function render() {
   const stage = $('stage');
-  const groups = buildGroups();
-  const total = Store.all().employees.length;
+  const blocks = buildStructure();
+  const { companies, departments, employees } = Store.all();
 
-  if (!total && !Store.all().departments.length) {
+  if (!employees.length && !departments.length && !companies.length) {
     stage.innerHTML = `
       <div class="empty">
         <h3>ยังไม่มีข้อมูล</h3>
-        <p>เริ่มจากผู้บริหารสูงสุดก่อน แล้วค่อยเพิ่มแผนกและพนักงานตามลงมา</p>
+        <p>เริ่มจากสร้างบริษัทก่อน แล้วค่อยเพิ่มผู้บริหาร แผนก และพนักงานตามลงมา</p>
         <div class="add-zone">
-          <button class="btn btn-gold" id="emptyCeo">+ เพิ่ม CEO</button>
-          <button class="btn" id="emptyDept">+ เพิ่มแผนก</button>
+          <button class="btn btn-gold" id="emptyCompany">+ เพิ่มบริษัท</button>
+          <button class="btn" id="emptyCeo">+ เพิ่ม CEO</button>
         </div>
       </div>`;
+    $('emptyCompany')?.addEventListener('click', () => companyForm());
     $('emptyCeo')?.addEventListener('click', () => personForm(null, { position: 'CEO' }));
-    $('emptyDept')?.addEventListener('click', () => deptForm());
     return;
   }
 
-  stage.innerHTML = groups.map((g, i) => {
+  let delay = 0;
+
+  const groupHTML = g => {
     const tree = toTree(g.members);
+    delay += 90;
     return `
-      <section class="dept" style="animation-delay:${i * 90}ms">
+      <section class="dept" style="animation-delay:${delay}ms">
         <div class="dept-head">
           <div class="dept-title">${esc(g.name)}</div>
           <span class="dept-count">${g.members.length} คน</span>
@@ -297,8 +322,32 @@ function render() {
         </div>
         ${tree.length
           ? `<ul class="tree">${tree.map(n => nodeHTML(n, 0)).join('')}</ul>`
-          : `<div class="empty" style="padding:26px">
+          : `<div class="empty" style="padding:22px">
                <p style="margin:0">ยังไม่มีพนักงานในแผนกนี้</p>
+             </div>`}
+      </section>`;
+  };
+
+  stage.innerHTML = blocks.map(b => {
+    const headcount = b.groups.reduce((n, g) => n + g.members.length, 0);
+    return `
+      <section class="company">
+        <div class="company-head">
+          <div class="company-mark">🏢</div>
+          <div class="company-title">${esc(b.name)}</div>
+          <span class="company-count">${headcount} คน</span>
+          <div class="company-actions">
+            ${b.id ? `
+              <button class="btn btn-sm btn-ghost" data-add-dept="${esc(b.id)}">+ แผนก</button>
+              <button class="btn btn-sm btn-ghost" data-edit-co="${esc(b.id)}">แก้ชื่อ</button>
+              <button class="btn btn-sm btn-danger" data-del-co="${esc(b.id)}">ลบบริษัท</button>
+            ` : ''}
+          </div>
+        </div>
+        ${b.groups.length
+          ? b.groups.map(groupHTML).join('')
+          : `<div class="empty" style="padding:26px">
+               <p style="margin:0">บริษัทนี้ยังไม่มีแผนกหรือพนักงาน</p>
              </div>`}
       </section>`;
   }).join('');
@@ -342,6 +391,30 @@ function wireNodes() {
     });
   });
 
+  document.querySelectorAll('[data-add-dept]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      deptForm(null, { companyId: b.dataset.addDept });
+    }));
+
+  document.querySelectorAll('[data-edit-co]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const c = Store.all().companies.find(x => x.id === b.dataset.editCo);
+      if (c) companyForm(c);
+    }));
+
+  document.querySelectorAll('[data-del-co]').forEach(b =>
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const c = Store.all().companies.find(x => x.id === b.dataset.delCo);
+      if (!c) return;
+      if (!confirm(`ลบบริษัท "${c.name}"?\n\nแผนกและพนักงานจะไม่ถูกลบ แต่จะย้ายไปกลุ่ม "ยังไม่ระบุบริษัท"`)) return;
+      await Store.deleteCompany(c.id);
+      render();
+      toast('ลบบริษัทแล้ว', 'ok');
+    }));
+
   document.querySelectorAll('[data-edit-dept]').forEach(b =>
     b.addEventListener('click', e => {
       e.stopPropagation();
@@ -381,7 +454,8 @@ async function reparent(dragId, newManagerId) {
   }
 
   drag.managerId = newManagerId;
-  drag.departmentId = target.departmentId;   // ย้ายตามแผนกหัวหน้าใหม่
+  drag.departmentId = target.departmentId;   // ย้ายตามแผนกและบริษัทของหัวหน้าใหม่
+  drag.companyId = target.companyId || null;
   await Store.saveEmployee(drag);
   render();
   toast(`ย้าย ${drag.nickname} ไปอยู่ใต้ ${target.nickname} แล้ว`, 'ok');
@@ -394,6 +468,8 @@ function detailView(id) {
   if (!emp) return;
   const dept = Store.all().departments.find(d => d.id === emp.departmentId);
   const mgr  = Store.all().employees.find(e => e.id === emp.managerId);
+  const comp = Store.all().companies.find(c =>
+    c.id === (dept ? dept.companyId : emp.companyId));
 
   const row = (label, value) => `
     <div class="field-row">
@@ -427,6 +503,7 @@ function detailView(id) {
       <div class="section-title">ข้อมูลทั่วไป</div>
       ${row('ชื่อเล่น', emp.nickname)}
       ${row('ตำแหน่ง', emp.position)}
+      ${row('บริษัท', comp?.name)}
       ${row('แผนก', dept?.name)}
       ${row('หัวหน้า', mgr?.nickname)}
 
@@ -525,10 +602,27 @@ function personForm(emp = null, preset = {}) {
     banned.add(emp.id); walk(emp.id);
   }
 
-  const deptOpts = ['<option value="">— ไม่ระบุแผนก —</option>']
-    .concat(departments.map(d =>
-      `<option value="${esc(d.id)}" ${d.id === e.departmentId ? 'selected' : ''}>${esc(d.name)}</option>`))
+  const companies = Store.all().companies;
+
+  // บริษัทของพนักงาน: ถ้ามีแผนก ให้ยึดตามบริษัทของแผนกนั้น
+  const ownDept = e.departmentId ? departments.find(d => d.id === e.departmentId) : null;
+  const curCompany = ownDept ? (ownDept.companyId || '') : (e.companyId || '');
+
+  const coOpts = ['<option value="">— ยังไม่ระบุบริษัท —</option>']
+    .concat(companies.map(c =>
+      `<option value="${esc(c.id)}" ${c.id === curCompany ? 'selected' : ''}>${esc(c.name)}</option>`))
     .join('');
+
+  /** แผนกที่เลือกได้ ขึ้นกับบริษัทที่เลือกอยู่ */
+  const deptOptsFor = (cid, selected) =>
+    ['<option value="">— ไม่ระบุแผนก (ระดับบริหาร) —</option>']
+      .concat(departments
+        .filter(d => (d.companyId || '') === (cid || ''))
+        .sort(bySort)
+        .map(d => `<option value="${esc(d.id)}" ${d.id === selected ? 'selected' : ''}>${esc(d.name)}</option>`))
+      .join('');
+
+  const deptOpts = deptOptsFor(curCompany, e.departmentId);
 
   const mgrOpts = ['<option value="">— ไม่มี (อยู่บนสุด) —</option>']
     .concat(employees.filter(x => !banned.has(x.id)).map(x =>
@@ -557,6 +651,10 @@ function personForm(emp = null, preset = {}) {
           <div>
             <label class="lbl" for="f-pos">ตำแหน่ง</label>
             <input type="text" id="f-pos" value="${esc(e.position)}" maxlength="80" placeholder="เช่น ผู้จัดการฝ่ายขาย">
+          </div>
+          <div>
+            <label class="lbl" for="f-co">บริษัท</label>
+            <select id="f-co">${coOpts}</select>
           </div>
           <div class="form-2">
             <div>
@@ -601,6 +699,11 @@ function personForm(emp = null, preset = {}) {
     ov.querySelector('#f-byear').addEventListener('change', () => syncDayOptions(ov));
     syncDayOptions(ov);
 
+    // เปลี่ยนบริษัท → แผนกที่เลือกได้เปลี่ยนตาม
+    ov.querySelector('#f-co').addEventListener('change', ev2 => {
+      ov.querySelector('#f-dept').innerHTML = deptOptsFor(ev2.target.value, null);
+    });
+
     ov.querySelector('#pf').addEventListener('submit', async ev => {
       ev.preventDefault();
       const nick = ov.querySelector('#f-nick').value.trim();
@@ -611,11 +714,17 @@ function personForm(emp = null, preset = {}) {
       const birthTime = readTime(ov);
       if (birthTime === undefined) return toast('กรุณาเลือกทั้งชั่วโมงและนาที', 'err');
 
+      const deptId = ov.querySelector('#f-dept').value || null;
+      const pickedCo = ov.querySelector('#f-co').value || null;
+      // ถ้าเลือกแผนก ให้บริษัทยึดตามแผนกเสมอ กันข้อมูลขัดกันเอง
+      const ofDept = deptId ? departments.find(d => d.id === deptId) : null;
+
       const data = {
         ...e,
         nickname: nick,
         position: ov.querySelector('#f-pos').value.trim(),
-        departmentId: ov.querySelector('#f-dept').value || null,
+        companyId: ofDept ? (ofDept.companyId || null) : pickedCo,
+        departmentId: deptId,
         managerId: ov.querySelector('#f-mgr').value || null,
         birthDate,
         birthTime,
@@ -635,17 +744,33 @@ function personForm(emp = null, preset = {}) {
 
 /* ---------- ฟอร์มแผนก ---------- */
 
-function deptForm(dept = null) {
+function deptForm(dept = null, preset = {}) {
   const isNew = !dept;
+  const d = dept || { name: '', companyId: null, ...preset };
+  const companies = Store.all().companies;
+
+  const coOpts = ['<option value="">— ยังไม่ระบุบริษัท —</option>']
+    .concat(companies.map(c =>
+      `<option value="${esc(c.id)}" ${c.id === d.companyId ? 'selected' : ''}>${esc(c.name)}</option>`))
+    .join('');
+
   openModal(`
     <div class="sheet-head">
-      <div class="sheet-name">${isNew ? 'เพิ่มแผนก' : 'แก้ชื่อแผนก'}</div>
+      <div class="sheet-name">${isNew ? 'เพิ่มแผนก' : 'แก้ไขแผนก'}</div>
     </div>
     <form id="df">
       <div class="sheet-body">
-        <label class="lbl" for="f-dname">ชื่อแผนก *</label>
-        <input type="text" id="f-dname" value="${esc(dept?.name || '')}"
-               required maxlength="60" placeholder="เช่น ฝ่ายขาย" autofocus>
+        <div class="form-grid">
+          <div>
+            <label class="lbl" for="f-dname">ชื่อแผนก *</label>
+            <input type="text" id="f-dname" value="${esc(d.name)}"
+                   required maxlength="60" placeholder="เช่น ฝ่ายขาย" autofocus>
+          </div>
+          <div>
+            <label class="lbl" for="f-dco">อยู่ในบริษัท</label>
+            <select id="f-dco">${coOpts}</select>
+          </div>
+        </div>
       </div>
       <div class="sheet-foot">
         <button type="button" class="btn btn-ghost" id="btnCancel">ยกเลิก</button>
@@ -659,10 +784,49 @@ function deptForm(dept = null) {
       ev.preventDefault();
       const name = ov.querySelector('#f-dname').value.trim();
       if (!name) return toast('กรุณากรอกชื่อแผนก', 'err');
+      const companyId = ov.querySelector('#f-dco').value || null;
       try {
-        await Store.saveDepartment(dept ? { ...dept, name } : { name });
+        await Store.saveDepartment({ ...d, name, companyId });
         close(); render();
         toast(isNew ? 'เพิ่มแผนกแล้ว' : 'บันทึกแล้ว', 'ok');
+      } catch (err) {
+        toast(err.message || 'บันทึกไม่สำเร็จ', 'err');
+      }
+    });
+  });
+}
+
+/* ---------- ฟอร์มบริษัท ---------- */
+
+function companyForm(company = null) {
+  const isNew = !company;
+  openModal(`
+    <div class="sheet-head">
+      <div class="sheet-name">${isNew ? 'เพิ่มบริษัท' : 'แก้ชื่อบริษัท'}</div>
+      <div class="sheet-role">โครงสร้าง: บริษัท → แผนก → พนักงาน</div>
+    </div>
+    <form id="cf">
+      <div class="sheet-body">
+        <label class="lbl" for="f-cname">ชื่อบริษัท *</label>
+        <input type="text" id="f-cname" value="${esc(company?.name || '')}"
+               required maxlength="80" placeholder="เช่น อินฟินิท บิลเดอร์ส" autofocus>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn btn-ghost" id="btnCancel">ยกเลิก</button>
+        <div class="spacer"></div>
+        <button type="submit" class="btn btn-gold">${isNew ? 'เพิ่ม' : 'บันทึก'}</button>
+      </div>
+    </form>
+  `, (ov, close) => {
+    ov.querySelector('#btnCancel').addEventListener('click', close);
+    ov.querySelector('#cf').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const name = ov.querySelector('#f-cname').value.trim();
+      if (!name) return toast('กรุณากรอกชื่อบริษัท', 'err');
+      try {
+        await Store.saveCompany(company ? { ...company, name } : { name });
+        close(); render();
+        toast(isNew ? 'เพิ่มบริษัทแล้ว' : 'บันทึกแล้ว', 'ok');
       } catch (err) {
         toast(err.message || 'บันทึกไม่สำเร็จ', 'err');
       }
@@ -759,6 +923,7 @@ async function boot() {
 
   render();
 
+  $('btnAddCompany').addEventListener('click', () => companyForm());
   $('btnAddPerson').addEventListener('click', () => personForm());
   $('btnAddDept').addEventListener('click', () => deptForm());
   $('btnMenu').addEventListener('click', menuView);
