@@ -177,10 +177,14 @@ function render() {
     stage.innerHTML = `
       <div class="empty">
         <h3>ยังไม่มีข้อมูล</h3>
-        <p>เริ่มต้นด้วยการเพิ่มแผนก แล้วค่อยเพิ่มพนักงาน</p>
-        <button class="btn btn-gold" id="emptyAdd">+ เพิ่มแผนกแรก</button>
+        <p>เริ่มจากผู้บริหารสูงสุดก่อน แล้วค่อยเพิ่มแผนกและพนักงานตามลงมา</p>
+        <div class="add-zone">
+          <button class="btn btn-gold" id="emptyCeo">+ เพิ่ม CEO</button>
+          <button class="btn" id="emptyDept">+ เพิ่มแผนก</button>
+        </div>
       </div>`;
-    $('emptyAdd')?.addEventListener('click', () => deptForm());
+    $('emptyCeo')?.addEventListener('click', () => personForm(null, { position: 'CEO' }));
+    $('emptyDept')?.addEventListener('click', () => deptForm());
     return;
   }
 
@@ -414,11 +418,11 @@ async function uploadChart(emp, file, close) {
 
 /* ---------- ฟอร์มพนักงาน ---------- */
 
-function personForm(emp = null) {
+function personForm(emp = null, preset = {}) {
   const { departments, employees } = Store.all();
   const isNew = !emp;
   const e = emp || { nickname:'', position:'', departmentId:null, managerId:null,
-                     birthDate:'', birthTime:'', birthProvince:'' };
+                     birthDate:'', birthTime:'', birthProvince:'', ...preset };
 
   // ตัวเลือกหัวหน้า — ตัดตัวเองและลูกน้องตัวเองออก (กันวนลูป)
   const banned = new Set();
