@@ -11,6 +11,7 @@ const Store = (() => {
   let mode = 'local';         // 'local' | 'cloud'
   let hasCompanies = true;    // ตาราง companies พร้อมใช้ไหม (ยังไม่ได้รัน migration = false)
   let hasPrediction = true;   // คอลัมน์ prediction พร้อมใช้ไหม
+  let hasChartUrls = true;    // คอลัมน์ chart_urls (รูปหลายรูป) พร้อมใช้ไหม
   let cache = { companies: [], departments: [], employees: [] };
 
   /* ---------- เริ่มต้น ---------- */
@@ -47,12 +48,17 @@ const Store = (() => {
       if (d.error) throw d.error;
       if (e.error) throw e.error;
 
-      // ตรวจว่ามีคอลัมน์ prediction ไหม
+      // ตรวจว่ามีคอลัมน์ prediction / chart_urls ไหม
       if (e.data.length) {
         hasPrediction = 'prediction' in e.data[0];
+        hasChartUrls  = 'chart_urls' in e.data[0];
       } else {
-        const probe = await sb.from('employees').select('prediction').limit(1);
-        hasPrediction = !probe.error;
+        const [p1, p2] = await Promise.all([
+          sb.from('employees').select('prediction').limit(1),
+          sb.from('employees').select('chart_urls').limit(1)
+        ]);
+        hasPrediction = !p1.error;
+        hasChartUrls  = !p2.error;
       }
 
       // ยังไม่ได้รัน migration-companies.sql → ทำงานต่อได้ แค่ไม่มีชั้นบริษัท
@@ -72,6 +78,10 @@ const Store = (() => {
       cache.companies   = cache.companies   || [];
       cache.departments = cache.departments || [];
       cache.employees   = cache.employees   || [];
+      // แปลงข้อมูลเก่า (รูปเดี่ยว chartUrl) → ลิสต์รูป chartUrls
+      cache.employees.forEach(e => {
+        if (!Array.isArray(e.chartUrls)) e.chartUrls = e.chartUrl ? [e.chartUrl] : [];
+      });
     }
     return cache;
   }
@@ -110,10 +120,17 @@ const Store = (() => {
     // Postgres คืน time เป็น "09:15:00" — ตัดวินาทีทิ้งให้ตรงกับ <input type=time>
     birthTime: r.birth_time ? String(r.birth_time).slice(0, 5) : null,
     birthProvince: r.birth_province,
-    chartUrl: r.chart_url,
+    chartUrls: readChartList(r),
     prediction: r.prediction ?? '',
     sortOrder: r.sort_order ?? 0
   });
+
+  /** รวมรูปจากคอลัมน์ใหม่ (chart_urls) และของเดิม (chart_url) ให้เป็นลิสต์เดียว */
+  function readChartList(r) {
+    const arr = Array.isArray(r.chart_urls) ? r.chart_urls.filter(Boolean) : [];
+    if (arr.length) return arr;
+    return r.chart_url ? [r.chart_url] : [];
+  }
   const toRowEmp = e => {
     const row = {
       id: e.id,
@@ -124,9 +141,11 @@ const Store = (() => {
       birth_date: e.birthDate || null,
       birth_time: e.birthTime || null,
       birth_province: e.birthProvince || null,
-      chart_url: e.chartUrl || null,
       sort_order: e.sortOrder ?? 0
     };
+    const charts = Array.isArray(e.chartUrls) ? e.chartUrls.filter(Boolean) : [];
+    row.chart_url = charts[0] || null;              // รูปแรก — คอลัมน์เดิม กันข้อมูลย้อนหลัง
+    if (hasChartUrls) row.chart_urls = charts;      // รูปทั้งหมด — คอลัมน์ใหม่
     if (companiesReady()) row.company_id = e.companyId || null;
     if (hasPrediction) row.prediction = e.prediction || null;
     return row;
@@ -277,13 +296,15 @@ const Store = (() => {
     });
   }
 
-  /** อัปโหลดรูปดวง คืนค่า URL (cloud) หรือ dataURL (local) */
-  async function uploadChart(file, employeeId) {
+  /** อัปโหลดรูปดวง คืนค่า URL (cloud) หรือ dataURL (local)
+   *  suffix ช่วยกันชื่อไฟล์ชนกันเวลาอัปโหลดหลายรูปรวดเดียว */
+  async function uploadChart(file, employeeId, suffix = '') {
     if (!file.type.startsWith('image/')) throw new Error('กรุณาเลือกไฟล์รูปภาพ');
     const { blob, dataUrl } = await compressImage(file);
 
     if (mode === 'cloud') {
-      const path = `charts/${employeeId}-${Date.now()}.jpg`;
+      const rand = Math.random().toString(36).slice(2, 8);
+      const path = `charts/${employeeId}-${Date.now()}-${suffix}${rand}.jpg`;
       const { error } = await sb.storage.from('charts')
         .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
       if (error) throw error;
