@@ -12,6 +12,7 @@ const Store = (() => {
   let hasCompanies = true;    // ตาราง companies พร้อมใช้ไหม (ยังไม่ได้รัน migration = false)
   let hasPrediction = true;   // คอลัมน์ prediction พร้อมใช้ไหม
   let hasChartUrls = true;    // คอลัมน์ chart_urls (รูปหลายรูป) พร้อมใช้ไหม
+  let hasParent = true;       // คอลัมน์ companies.parent_id (บริษัทแม่-ลูก) พร้อมใช้ไหม
   let cache = { companies: [], departments: [], employees: [] };
 
   /* ---------- เริ่มต้น ---------- */
@@ -64,10 +65,11 @@ const Store = (() => {
       // ยังไม่ได้รัน migration-companies.sql → ทำงานต่อได้ แค่ไม่มีชั้นบริษัท
       hasCompanies = !c.error;
       if (c.error) {
-        console.warn('[HORA] ยังไม่มีตาราง companies — รัน docs/migration-companies.sql ก่อน');
+        console.warn('[HORA] ยังไม่มีตาราง companies — รัน docs/setup-all.sql ก่อน');
         cache.companies = [];
       } else {
         cache.companies = c.data.map(fromRowCompany);
+        hasParent = c.data.length === 0 || 'parent_id' in c.data[0];
       }
 
       cache.departments = d.data.map(fromRowDept);
@@ -82,6 +84,7 @@ const Store = (() => {
       cache.employees.forEach(e => {
         if (!Array.isArray(e.chartUrls)) e.chartUrls = e.chartUrl ? [e.chartUrl] : [];
       });
+      cache.companies.forEach(c => { if (c.parentId === undefined) c.parentId = null; });
     }
     return cache;
   }
@@ -94,11 +97,13 @@ const Store = (() => {
   /* ---------- แปลงรูปแบบ DB ↔ แอป ---------- */
 
   const fromRowCompany = r => ({
-    id: r.id, name: r.name, sortOrder: r.sort_order ?? 0
+    id: r.id, name: r.name, parentId: r.parent_id ?? null, sortOrder: r.sort_order ?? 0
   });
-  const toRowCompany = c => ({
-    id: c.id, name: c.name, sort_order: c.sortOrder ?? 0
-  });
+  const toRowCompany = c => {
+    const row = { id: c.id, name: c.name, sort_order: c.sortOrder ?? 0 };
+    if (hasParent) row.parent_id = c.parentId || null;
+    return row;
+  };
 
   const fromRowDept = r => ({
     id: r.id, name: r.name, companyId: r.company_id ?? null, sortOrder: r.sort_order ?? 0
@@ -187,14 +192,17 @@ const Store = (() => {
   }
 
   async function deleteCompany(id) {
-    // แผนกและพนักงานในบริษัทนี้ไม่ถูกลบ แค่ย้ายออกไปกลุ่ม "ยังไม่ระบุบริษัท"
+    // แผนก/พนักงานในบริษัทนี้ไม่ถูกลบ แค่ย้ายออกไปกลุ่ม "ยังไม่ระบุบริษัท"
+    // บริษัทลูก (ถ้ามี) เลื่อนขึ้นเป็นบริษัทระดับบนสุด
     cache.departments.forEach(d => { if (d.companyId === id) d.companyId = null; });
     cache.employees.forEach(e => { if (e.companyId === id) e.companyId = null; });
+    cache.companies.forEach(c => { if (c.parentId === id) c.parentId = null; });
     cache.companies = cache.companies.filter(c => c.id !== id);
 
     if (mode === 'cloud') {
       await sb.from('departments').update({ company_id: null }).eq('company_id', id);
       await sb.from('employees').update({ company_id: null }).eq('company_id', id);
+      if (hasParent) await sb.from('companies').update({ parent_id: null }).eq('parent_id', id);
       const { error } = await sb.from('companies').delete().eq('id', id);
       if (error) throw error;
     } else persistLocal();

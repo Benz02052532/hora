@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ตัวอย่าง — ต้นไม้เครือบริษัท</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500&family=Sarabun:wght@300;400&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Sarabun', sans-serif; font-weight: 300; color: #eef1ff;
+  background:
+    radial-gradient(1200px 700px at 50% 0%, #1a1f45 0%, #0c1029 45%, #05060f 100%);
+  min-height: 100vh; padding: 40px 20px 80px; overflow-x: auto;
+}
+/* ดาวพื้นหลังจางๆ */
+body::before {
+  content:''; position: fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%, #fff 50%, transparent),
+    radial-gradient(1px 1px at 60% 20%, #cdd 50%, transparent),
+    radial-gradient(1.5px 1.5px at 80% 60%, #fff 50%, transparent),
+    radial-gradient(1px 1px at 35% 70%, #dde 50%, transparent),
+    radial-gradient(1px 1px at 75% 85%, #fff 50%, transparent),
+    radial-gradient(1.5px 1.5px at 10% 80%, #cff 50%, transparent),
+    radial-gradient(1px 1px at 90% 40%, #fff 50%, transparent);
+  opacity:.5;
+}
+.head { position: relative; z-index:1; text-align:center; margin-bottom: 46px; }
+.head h1 { font-family:'Kanit'; font-weight:400; font-size: 22px; color:#f3ddaa; letter-spacing:.02em; }
+.head p { color:#99a2c6; font-size: 13.5px; margin-top:6px; }
+
+.scroll { position: relative; z-index:1; display:flex; justify-content:center; min-width: max-content; margin:0 auto; }
+
+/* ---------- โครงต้นไม้ ---------- */
+.tree, .tree ul { list-style:none; display:flex; justify-content:center; position:relative; }
+.tree ul { padding-top: 34px; }
+.tree li { position:relative; display:flex; flex-direction:column; align-items:center; padding: 34px 12px 0; }
+.tree li::before, .tree li::after {
+  content:''; position:absolute; top:0; right:50%; width:50%; height:34px;
+  border-top:1px solid rgba(233,200,119,.42);
+}
+.tree li::after { right:auto; left:50%; border-left:1px solid rgba(233,200,119,.42); }
+.tree li:only-child { padding-top:0; }
+.tree li:only-child::before, .tree li:only-child::after { display:none; }
+.tree li:first-child::before, .tree li:last-child::after { border:0; }
+.tree li:last-child::before { border-right:1px solid rgba(233,200,119,.42); border-radius:0 6px 0 0; }
+.tree li:first-child::after { border-radius:6px 0 0 0; }
+.tree ul::before {
+  content:''; position:absolute; top:0; left:50%; width:0; height:34px;
+  border-left:1px solid rgba(233,200,119,.42);
+}
+.tree > li { padding-top:0; }
+.tree > li::before, .tree > li::after { display:none; }
+
+/* ---------- การ์ดบริษัท ---------- */
+.co {
+  position:relative; width: 250px; padding: 18px 18px 16px; border-radius: 18px; cursor:pointer;
+  background: linear-gradient(150deg, rgba(233,200,119,.16), rgba(139,123,216,.10) 60%, rgba(255,255,255,.04));
+  border:1px solid rgba(233,200,119,.42);
+  box-shadow: 0 14px 40px rgba(0,0,0,.4), 0 0 30px rgba(233,200,119,.10);
+  text-align:center; transition: transform .3s, box-shadow .3s;
+}
+.co:hover { transform: translateY(-5px); box-shadow: 0 20px 50px rgba(0,0,0,.5), 0 0 44px rgba(233,200,119,.22); }
+.co.root { width: 300px; padding: 22px; }
+.co-badge { font-size:10.5px; letter-spacing:.14em; color:#a8853f; text-transform:uppercase; }
+.co-icon {
+  width: 46px; height:46px; margin: 8px auto 12px; border-radius:13px; display:grid; place-items:center;
+  font-size: 24px; background: rgba(233,200,119,.14); border:1px solid rgba(233,200,119,.30);
+}
+.co.root .co-icon { width:58px; height:58px; font-size:30px; }
+.co-name { font-family:'Kanit'; font-weight:400; font-size: 17px; color:#f3ddaa; line-height:1.3; }
+.co.root .co-name { font-size: 21px; }
+.co-count {
+  display:inline-block; margin-top:11px; font-size:11.5px; color:#99a2c6;
+  background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
+  padding: 3px 12px; border-radius:999px;
+}
+
+/* ---------- การ์ดพนักงาน ---------- */
+.p {
+  position:relative; width: 176px; padding: 14px 13px 13px; border-radius: 14px; cursor:pointer;
+  background: linear-gradient(160deg, rgba(255,255,255,.085), rgba(255,255,255,.03));
+  border:1px solid rgba(255,255,255,.12); backdrop-filter: blur(10px);
+  text-align:center; transition: transform .3s, box-shadow .3s, border-color .3s;
+}
+.p:hover { transform: translateY(-4px); border-color: rgba(233,200,119,.4);
+  box-shadow: 0 14px 34px rgba(0,0,0,.45), 0 0 26px rgba(233,200,119,.12); }
+.p.lead { width: 190px; }
+.p-av {
+  width: 40px; height:40px; margin:0 auto 9px; border-radius:50%; display:grid; place-items:center;
+  font-family:'Kanit'; font-size:15px; color:#f3ddaa;
+  background: radial-gradient(circle at 35% 30%, #363062, #15162f 72%); border:1px solid rgba(255,255,255,.12);
+}
+.p.lead .p-av { background: radial-gradient(circle at 35% 30%, #5b4fa8, #221f4a 72%); border-color: rgba(233,200,119,.42); }
+.p-name { font-family:'Kanit'; font-weight:400; font-size:14.5px; }
+.p-role { font-size:11.5px; color:#99a2c6; margin-top:3px; }
+.p-dept {
+  display:inline-block; margin-top:8px; font-size:10px; color:#a8853f;
+  background: rgba(233,200,119,.09); border:1px solid rgba(233,200,119,.2); padding:2px 8px; border-radius:999px;
+}
+.legend { position:relative; z-index:1; text-align:center; margin-top:50px; color:#6b7398; font-size:12.5px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>ตัวอย่างดีไซน์ — ต้นไม้เครือบริษัท (โฮลดิ้ง)</h1>
+    <p>อินฟินิท บิลเดอร์ส เป็นบริษัทแม่ · แตกกิ่งลงไปเป็นบริษัทย่อย · เห็นทั้งเครือในภาพเดียว</p>
+  </div>
+
+  <div class="scroll">
+    <ul class="tree">
+      <li>
+        <!-- บริษัทแม่ -->
+        <div class="co root">
+          <div class="co-badge">บริษัทแม่ · Holding</div>
+          <div class="co-icon">🏢</div>
+          <div class="co-name">อินฟินิท บิลเดอร์ส</div>
+          <span class="co-count">11 คน · 3 บริษัทย่อย</span>
+        </div>
+
+        <ul>
+          <!-- สายคนของบริษัทแม่ -->
+          <li>
+            <div class="p lead"><div class="p-av">บ</div><div class="p-name">เบนซ์</div><div class="p-role">CEO</div></div>
+            <ul>
+              <li><div class="p"><div class="p-av">ก</div><div class="p-name">กานต์</div><div class="p-role">COO</div></div></li>
+              <li><div class="p"><div class="p-av">น</div><div class="p-name">แนน</div><div class="p-role">CFO</div></div></li>
+              <li><div class="p"><div class="p-av">ต</div><div class="p-name">ต้อม</div><div class="p-role">ผจก.ทรัพยากรบุคคล</div></div></li>
+            </ul>
+          </li>
+
+          <!-- บริษัทย่อย A -->
+          <li>
+            <div class="co">
+              <div class="co-badge">บริษัทย่อย</div>
+              <div class="co-icon">🏗️</div>
+              <div class="co-name">อินฟินิท คอนสตรัคชัน</div>
+              <span class="co-count">12 คน</span>
+            </div>
+            <ul>
+              <li><div class="p lead"><div class="p-av">พ</div><div class="p-name">พีท</div><div class="p-role">กรรมการผู้จัดการ</div></div>
+                <ul>
+                  <li><div class="p"><div class="p-av">อ</div><div class="p-name">อาร์ม</div><div class="p-role">วิศวกรโครงการ</div><span class="p-dept">ก่อสร้าง</span></div></li>
+                  <li><div class="p"><div class="p-av">ม</div><div class="p-name">มิ้น</div><div class="p-role">ควบคุมคุณภาพ</div><span class="p-dept">ก่อสร้าง</span></div></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+
+          <!-- บริษัทย่อย B -->
+          <li>
+            <div class="co">
+              <div class="co-badge">บริษัทย่อย</div>
+              <div class="co-icon">🏠</div>
+              <div class="co-name">อินฟินิท พร็อพเพอร์ตี้</div>
+              <span class="co-count">8 คน</span>
+            </div>
+            <ul>
+              <li><div class="p lead"><div class="p-av">ว</div><div class="p-name">วิว</div><div class="p-role">กรรมการผู้จัดการ</div></div>
+                <ul>
+                  <li><div class="p"><div class="p-av">จ</div><div class="p-name">จoย</div><div class="p-role">ฝ่ายขาย</div><span class="p-dept">การตลาด</span></div></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+
+          <!-- บริษัทย่อย C -->
+          <li>
+            <div class="co">
+              <div class="co-badge">บริษัทย่อย</div>
+              <div class="co-icon">⚙️</div>
+              <div class="co-name">อินฟินิท เอ็นจิเนียริ่ง</div>
+              <span class="co-count">20 คน</span>
+            </div>
+            <ul>
+              <li><div class="p lead"><div class="p-av">ณ</div><div class="p-name">ณัฐ</div><div class="p-role">กรรมการผู้จัดการ</div></div></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="legend">
+    การ์ดขอบทอง = บริษัท · การ์ดใสๆ = พนักงาน · กดที่บริษัทย่อยเพื่อดูคนข้างในทั้งหมด<br>
+    (นี่เป็นแค่ตัวอย่างหน้าตา ยังไม่เชื่อมข้อมูลจริง)
+  </div>
+</body>
+</html>

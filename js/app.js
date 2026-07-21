@@ -239,47 +239,26 @@ function renderPlanets(planets, now) {
 
 const bySort = (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
 
-/**
- * จัดข้อมูลเป็นชั้น: บริษัท → แผนก → พนักงาน
- * พนักงานที่มีแผนก จะอยู่ตามบริษัทของแผนกนั้น
- * พนักงานที่ไม่มีแผนก (เช่น CEO) จะอยู่กลุ่ม "ผู้บริหาร" ของบริษัทตัวเอง
- */
-function buildStructure() {
-  const { companies, departments, employees } = Store.all();
-  const deptById = new Map(departments.map(d => [d.id, d]));
+/** companyId ที่พนักงานคนนี้สังกัด — ยึดตามแผนกก่อน ถ้าไม่มีแผนกใช้ companyId ตรง */
+function employeeCompany(emp, deptCompanyMap) {
+  if (emp.departmentId && deptCompanyMap.has(emp.departmentId)) {
+    return deptCompanyMap.get(emp.departmentId) || null;
+  }
+  return emp.companyId || null;
+}
 
-  // แยกพนักงานลงถัง key = "companyId|departmentId"
-  const bucket = new Map();
-  const put = (cid, did, emp) => {
-    const k = `${cid || ''}|${did || ''}`;
-    if (!bucket.has(k)) bucket.set(k, []);
-    bucket.get(k).push(emp);
-  };
-  employees.forEach(e => {
-    const d = e.departmentId ? deptById.get(e.departmentId) : null;
-    if (d) put(d.companyId, d.id, e);
-    else put(e.companyId, null, e);
-  });
+/** พนักงานทั้งหมดในบริษัทหนึ่ง (companyId=null = ยังไม่ระบุบริษัท) */
+function companyPeople(companyId) {
+  const { departments, employees } = Store.all();
+  const deptCompany = new Map(departments.map(d => [d.id, d.companyId || null]));
+  return employees.filter(e => employeeCompany(e, deptCompany) === (companyId || null));
+}
 
-  const makeBlock = comp => {
-    const cid = comp ? comp.id : null;
-    const groups = [];
-
-    const execs = bucket.get(`${cid || ''}|`) || [];
-    if (execs.length) groups.push({ id: null, name: 'ผู้บริหาร', members: execs });
-
-    departments
-      .filter(d => (d.companyId || null) === cid)
-      .sort(bySort)
-      .forEach(d => groups.push({ ...d, members: bucket.get(`${cid || ''}|${d.id}`) || [] }));
-
-    return { id: cid, name: comp ? comp.name : 'ยังไม่ระบุบริษัท', groups };
-  };
-
-  const blocks = companies.slice().sort(bySort).map(makeBlock);
-  const orphan = makeBlock(null);
-  if (orphan.groups.length) blocks.push(orphan);
-  return blocks;
+/** บริษัทลูกโดยตรงของบริษัทหนึ่ง */
+function childCompanies(companyId) {
+  return Store.all().companies
+    .filter(c => (c.parentId || null) === (companyId || null))
+    .sort(bySort);
 }
 
 /** แปลงรายชื่อในกลุ่มเป็นต้นไม้ */
@@ -329,16 +308,70 @@ function nodeHTML(n, depth) {
     </li>`;
 }
 
+/** นับพนักงานทั้งบริษัทรวมบริษัทลูกทั้งหมด */
+function totalHeadcount(companyId) {
+  let n = companyPeople(companyId).length;
+  childCompanies(companyId).forEach(c => { n += totalHeadcount(c.id); });
+  return n;
+}
+
+/** การ์ดบริษัทหนึ่งใบ (ไม่รวมกิ่งลูก) */
+function companyCardHTML(company, isRoot) {
+  const people = companyPeople(company.id);
+  const subs = childCompanies(company.id);
+  const badge = isRoot ? 'บริษัทแม่ · Holding' : (subs.length ? 'บริษัทในเครือ' : 'บริษัท');
+  const countText = subs.length
+    ? `${totalHeadcount(company.id)} คน · ${subs.length} บริษัทย่อย`
+    : `${people.length} คน`;
+  return `
+    <div class="co-card ${isRoot ? 'root' : ''}" data-co="${esc(company.id)}"
+         tabindex="0" role="button">
+      <div class="co-badge">${badge}</div>
+      <div class="co-icon">${isRoot ? '🏢' : '🏛️'}</div>
+      <div class="co-name">${esc(company.name)}</div>
+      <span class="co-count">${countText}</span>
+    </div>`;
+}
+
+/** กิ่งของบริษัทหนึ่ง = [คนของบริษัท (ตามสายบังคับบัญชา)] + [บริษัทลูก] */
+function companyBranchHTML(company, isRoot) {
+  const peopleTree = toTree(companyPeople(company.id));
+  const subs = childCompanies(company.id);
+  const kids = [
+    ...peopleTree.map(n => nodeHTML(n, 0)),
+    ...subs.map(c => companyBranchHTML(c, false))
+  ].join('');
+  return `
+    <li>
+      ${companyCardHTML(company, isRoot)}
+      ${kids ? `<ul>${kids}</ul>` : ''}
+    </li>`;
+}
+
+/** กิ่งพนักงานที่ยังไม่ระบุบริษัท */
+function orphanBranchHTML(people) {
+  const peopleTree = toTree(people);
+  return `
+    <li>
+      <div class="co-card orphan" data-co="" tabindex="0" role="button">
+        <div class="co-badge">ยังไม่ระบุบริษัท</div>
+        <div class="co-icon">👥</div>
+        <div class="co-name">ยังไม่ระบุบริษัท</div>
+        <span class="co-count">${people.length} คน</span>
+      </div>
+      ${peopleTree.length ? `<ul>${peopleTree.map(n => nodeHTML(n, 0)).join('')}</ul>` : ''}
+    </li>`;
+}
+
 function render() {
   const stage = $('stage');
-  const blocks = buildStructure();
   const { companies, departments, employees } = Store.all();
 
   if (!employees.length && !departments.length && !companies.length) {
     stage.innerHTML = `
       <div class="empty">
         <h3>ยังไม่มีข้อมูล</h3>
-        <p>เริ่มจากสร้างบริษัทก่อน แล้วค่อยเพิ่มผู้บริหาร แผนก และพนักงานตามลงมา</p>
+        <p>เริ่มจากสร้างบริษัทแม่ก่อน แล้วค่อยเพิ่มผู้บริหาร บริษัทย่อย และพนักงานตามลงมา</p>
         <div class="add-zone">
           <button class="btn btn-gold" id="emptyCompany">+ เพิ่มบริษัท</button>
           <button class="btn" id="emptyCeo">+ เพิ่ม CEO</button>
@@ -349,56 +382,28 @@ function render() {
     return;
   }
 
-  let delay = 0;
+  // บริษัทระดับบนสุด = ไม่มีแม่ หรือแม่ถูกลบไปแล้ว
+  const roots = companies
+    .filter(c => {
+      const pid = c.parentId || null;
+      return !pid || !companies.some(x => x.id === pid);
+    })
+    .sort(bySort);
 
-  const groupHTML = g => {
-    const tree = toTree(g.members);
-    delay += 90;
-    return `
-      <section class="dept" style="animation-delay:${delay}ms">
-        <div class="dept-head">
-          <div class="dept-title">${esc(g.name)}</div>
-          <span class="dept-count">${g.members.length} คน</span>
-          <div class="dept-actions">
-            ${g.id ? `
-              <button class="btn btn-sm btn-ghost" data-edit-dept="${esc(g.id)}">แก้ชื่อ</button>
-              <button class="btn btn-sm btn-danger" data-del-dept="${esc(g.id)}">ลบแผนก</button>
-            ` : ''}
-          </div>
-        </div>
-        ${tree.length
-          ? `<ul class="tree">${tree.map(n => nodeHTML(n, 0)).join('')}</ul>`
-          : `<div class="empty" style="padding:22px">
-               <p style="margin:0">ยังไม่มีพนักงานในแผนกนี้</p>
-             </div>`}
-      </section>`;
-  };
+  const orphans = companyPeople(null);
 
-  stage.innerHTML = blocks.map(b => {
-    const headcount = b.groups.reduce((n, g) => n + g.members.length, 0);
-    return `
-      <section class="company">
-        <div class="company-head">
-          <div class="company-mark">🏢</div>
-          <div class="company-title">${esc(b.name)}</div>
-          <span class="company-count">${headcount} คน</span>
-          <div class="company-actions">
-            ${b.id ? `
-              <button class="btn btn-sm btn-ghost" data-add-dept="${esc(b.id)}">+ แผนก</button>
-              <button class="btn btn-sm btn-ghost" data-edit-co="${esc(b.id)}">แก้ชื่อ</button>
-              <button class="btn btn-sm btn-danger" data-del-co="${esc(b.id)}">ลบบริษัท</button>
-            ` : ''}
-          </div>
-        </div>
-        ${b.groups.length
-          ? b.groups.map(groupHTML).join('')
-          : `<div class="empty" style="padding:26px">
-               <p style="margin:0">บริษัทนี้ยังไม่มีแผนกหรือพนักงาน</p>
-             </div>`}
-      </section>`;
-  }).join('');
+  const branches = [
+    ...roots.map(c => companyBranchHTML(c, !c.parentId)),
+    ...(orphans.length ? [orphanBranchHTML(orphans)] : [])
+  ].join('');
+
+  stage.innerHTML = `
+    <div class="holding-scroll">
+      <ul class="tree holding">${branches}</ul>
+    </div>`;
 
   wireNodes();
+  wireCompanies();
 }
 
 /* ---------- เชื่อมเหตุการณ์กับการ์ด ---------- */
@@ -437,47 +442,63 @@ function wireNodes() {
     });
   });
 
-  document.querySelectorAll('[data-add-dept]').forEach(b =>
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      deptForm(null, { companyId: b.dataset.addDept });
-    }));
+}
 
-  document.querySelectorAll('[data-edit-co]').forEach(b =>
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      const c = Store.all().companies.find(x => x.id === b.dataset.editCo);
-      if (c) companyForm(c);
-    }));
+/** กดที่การ์ดบริษัท → เปิดเมนูจัดการบริษัท */
+function wireCompanies() {
+  document.querySelectorAll('.co-card').forEach(el => {
+    const id = el.dataset.co;
+    if (!id) return;   // การ์ด "ยังไม่ระบุบริษัท" ไม่มีเมนู
+    const open = () => {
+      const c = Store.all().companies.find(x => x.id === id);
+      if (c) companyMenu(c);
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+  });
+}
 
-  document.querySelectorAll('[data-del-co]').forEach(b =>
-    b.addEventListener('click', async e => {
-      e.stopPropagation();
-      const c = Store.all().companies.find(x => x.id === b.dataset.delCo);
-      if (!c) return;
-      if (!confirm(`ลบบริษัท "${c.name}"?\n\nแผนกและพนักงานจะไม่ถูกลบ แต่จะย้ายไปกลุ่ม "ยังไม่ระบุบริษัท"`)) return;
-      await Store.deleteCompany(c.id);
-      render();
+/* ---------- เมนูจัดการบริษัท ---------- */
+
+function companyMenu(company) {
+  const people = companyPeople(company.id).length;
+  const subs = childCompanies(company.id).length;
+  const parent = Store.all().companies.find(c => c.id === company.parentId);
+
+  openModal(`
+    <div class="sheet-head">
+      <div class="sheet-avatar" style="border-radius:14px">🏛️</div>
+      <div class="sheet-name">${esc(company.name)}</div>
+      <div class="sheet-role">${people} คน · ${subs} บริษัทย่อย${parent ? ' · อยู่ใต้ ' + esc(parent.name) : ''}</div>
+    </div>
+    <div class="sheet-body">
+      <div class="form-grid">
+        <button class="btn btn-gold" id="cmAddPerson">+ เพิ่มพนักงานในบริษัทนี้</button>
+        <button class="btn" id="cmAddSub">+ เพิ่มบริษัทย่อยใต้บริษัทนี้</button>
+        <button class="btn" id="cmAddDept">+ เพิ่มแผนก</button>
+        <button class="btn" id="cmEdit">แก้ชื่อ / เปลี่ยนบริษัทแม่</button>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn btn-danger btn-sm" id="cmDel">ลบบริษัท</button>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost" id="cmClose">ปิด</button>
+    </div>
+  `, (ov, close) => {
+    ov.querySelector('#cmClose').addEventListener('click', close);
+    ov.querySelector('#cmAddPerson').addEventListener('click', () => { close(); personForm(null, { companyId: company.id }); });
+    ov.querySelector('#cmAddSub').addEventListener('click', () => { close(); companyForm(null, { parentId: company.id }); });
+    ov.querySelector('#cmAddDept').addEventListener('click', () => { close(); deptForm(null, { companyId: company.id }); });
+    ov.querySelector('#cmEdit').addEventListener('click', () => { close(); companyForm(company); });
+    ov.querySelector('#cmDel').addEventListener('click', async () => {
+      if (!confirm(`ลบบริษัท "${company.name}"?\n\nพนักงานและแผนกไม่ถูกลบ (ย้ายไป "ยังไม่ระบุบริษัท")\nบริษัทย่อย (ถ้ามี) จะเลื่อนขึ้นเป็นบริษัทระดับบนสุด`)) return;
+      await Store.deleteCompany(company.id);
+      close(); render();
       toast('ลบบริษัทแล้ว', 'ok');
-    }));
-
-  document.querySelectorAll('[data-edit-dept]').forEach(b =>
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      const d = Store.all().departments.find(x => x.id === b.dataset.editDept);
-      if (d) deptForm(d);
-    }));
-
-  document.querySelectorAll('[data-del-dept]').forEach(b =>
-    b.addEventListener('click', async e => {
-      e.stopPropagation();
-      const d = Store.all().departments.find(x => x.id === b.dataset.delDept);
-      if (!d) return;
-      if (!confirm(`ลบแผนก "${d.name}"?\n\nพนักงานในแผนกนี้จะไม่ถูกลบ แต่จะย้ายไปอยู่กลุ่ม "ยังไม่ระบุแผนก"`)) return;
-      await Store.deleteDepartment(d.id);
-      render();
-      toast('ลบแผนกแล้ว', 'ok');
-    }));
+    });
+  });
 }
 
 /** ย้ายคนไปอยู่ใต้หัวหน้าคนใหม่ (กันวนลูป) */
@@ -925,18 +946,41 @@ function deptForm(dept = null, preset = {}) {
 
 /* ---------- ฟอร์มบริษัท ---------- */
 
-function companyForm(company = null) {
+function companyForm(company = null, preset = {}) {
   const isNew = !company;
+  const c = company || { name: '', parentId: null, ...preset };
+  const companies = Store.all().companies;
+
+  // ตัวเลือกบริษัทแม่ — ตัดตัวเองและลูกหลานตัวเองออก (กันวนลูป)
+  const banned = new Set();
+  if (company) {
+    const walk = pid => companies.filter(x => (x.parentId || null) === pid)
+      .forEach(ch => { banned.add(ch.id); walk(ch.id); });
+    banned.add(company.id); walk(company.id);
+  }
+  const parentOpts = ['<option value="">— เป็นบริษัทแม่ (บนสุด) —</option>']
+    .concat(companies.filter(x => !banned.has(x.id)).map(x =>
+      `<option value="${esc(x.id)}" ${x.id === c.parentId ? 'selected' : ''}>${esc(x.name)}</option>`))
+    .join('');
+
   openModal(`
     <div class="sheet-head">
-      <div class="sheet-name">${isNew ? 'เพิ่มบริษัท' : 'แก้ชื่อบริษัท'}</div>
-      <div class="sheet-role">โครงสร้าง: บริษัท → แผนก → พนักงาน</div>
+      <div class="sheet-name">${isNew ? 'เพิ่มบริษัท' : 'แก้ไขบริษัท'}</div>
+      <div class="sheet-role">โครงสร้างเครือ: บริษัทแม่ → บริษัทย่อย → พนักงาน</div>
     </div>
     <form id="cf">
       <div class="sheet-body">
-        <label class="lbl" for="f-cname">ชื่อบริษัท *</label>
-        <input type="text" id="f-cname" value="${esc(company?.name || '')}"
-               required maxlength="80" placeholder="เช่น อินฟินิท บิลเดอร์ส" autofocus>
+        <div class="form-grid">
+          <div>
+            <label class="lbl" for="f-cname">ชื่อบริษัท *</label>
+            <input type="text" id="f-cname" value="${esc(c.name)}"
+                   required maxlength="80" placeholder="เช่น อินฟินิท บิลเดอร์ส" autofocus>
+          </div>
+          <div>
+            <label class="lbl" for="f-cparent">อยู่ใต้บริษัทแม่</label>
+            <select id="f-cparent">${parentOpts}</select>
+          </div>
+        </div>
       </div>
       <div class="sheet-foot">
         <button type="button" class="btn btn-ghost" id="btnCancel">ยกเลิก</button>
@@ -950,8 +994,9 @@ function companyForm(company = null) {
       ev.preventDefault();
       const name = ov.querySelector('#f-cname').value.trim();
       if (!name) return toast('กรุณากรอกชื่อบริษัท', 'err');
+      const parentId = ov.querySelector('#f-cparent').value || null;
       try {
-        await Store.saveCompany(company ? { ...company, name } : { name });
+        await Store.saveCompany({ ...c, name, parentId });
         close(); render();
         toast(isNew ? 'เพิ่มบริษัทแล้ว' : 'บันทึกแล้ว', 'ok');
       } catch (err) {

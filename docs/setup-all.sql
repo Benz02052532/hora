@@ -39,6 +39,9 @@ create table if not exists public.employees (
 );
 
 -- ---------- คอลัมน์เพิ่มเติม (ฟีเจอร์ที่เพิ่มภายหลัง) ----------
+-- บริษัทแม่-ลูก (โครงสร้างต้นไม้เครือบริษัท)
+alter table public.companies
+  add column if not exists parent_id text references public.companies(id) on delete set null;
 alter table public.departments
   add column if not exists company_id text references public.companies(id) on delete set null;
 alter table public.employees
@@ -59,6 +62,7 @@ create index if not exists employees_department_idx on public.employees(departme
 create index if not exists employees_manager_idx    on public.employees(manager_id);
 create index if not exists employees_company_idx    on public.employees(company_id);
 create index if not exists departments_company_idx  on public.departments(company_id);
+create index if not exists companies_parent_idx      on public.companies(parent_id);
 
 -- ---------- สิทธิ์เข้าถึงผ่าน Data API ----------
 grant usage on schema public to anon, authenticated;
